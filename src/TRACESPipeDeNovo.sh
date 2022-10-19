@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-STUDY="datax";
+STUDY="data";
 MIN_READ_LENGTH="30";
 MIN_SIMILARITY="20";
 THREADS="8"; 
 FW_READS="";
 RV_READS="";
 ADAPTERS="adapters.fa";
-DATABASE="VDB.mfa";
+DATABASE="VDB.fa";
 REPORTS_DIR="reports";
 RESULTS_DIR="results";
 #

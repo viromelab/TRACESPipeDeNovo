@@ -34,7 +34,37 @@ To see the option of TRACESPipeDeNovo, please run the following command
 ```
 This command will output the following content
 ```
-<work in process...>
+ --------------------------------------------------------
+                                                         
+ TRACESPipeDeNovo.sh : TRACESPipe de-novo version v1.0   
+                                                         
+ This is a de-novo version of TRACESPipe. It provide     
+ automatic reconstruction of viral genomes and performs  
+ extended analyses such as classification.               
+                                                         
+ Program options ----------------------------------------
+                                                         
+ -h, --help                     Show this,               
+ -i, --install                  Installation (w/ conda), 
+                                                         
+ -t  <INT>, --threads <INT>     Number of threads,       
+                                                         
+ -mr <INT>, --min-read <INT>    Minimum size of reads,   
+                                                         
+ -r1 <STR>, --reads1 <STR>      FASTQ reads (forward),   
+ -r2 <STR>, --reads2 <STR>      FASTQ reads (reverse),   
+                                                         
+ -db <STR>, --database <STR>    FASTA Viral Database,    
+                                                         
+ -o  <STR>, --output <STR>      Output folder name.      
+                                                         
+ Example ----------------------------------------------- 
+                                                         
+ bash TRACESPipeDeNovo.sh --reads1 reads_fw.fq.gz \     
+      --reads2 reads_rv.fq.gz --database VDB.mfa \      
+      --output output_analysis --threads 8               
+                                                         
+ -------------------------------------------------------
 ```
 
 ## 4. Future updates ##
