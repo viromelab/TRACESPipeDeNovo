@@ -1,7 +1,7 @@
 # TRACESPipeDeNovo
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPL%20v3-blue.svg)](LICENSE)
-[![Speed](https://img.shields.io/static/v1.svg?label=Ultra-Fast&message=Ultra%20speed%20performance&color=green)](#)
+[![Speed](https://img.shields.io/static/v1.svg?label=De-Novo&message=Assembly&color=green)](#)
 [![Release](https://img.shields.io/static/v1.svg?label=Release&message=v2.1.0&color=orange)](#)
 
 TRACESPipeDeNovo is the reference-free version of TRACESPipe. TRACESPipeDeNovo is oriented for unknown viral genome classification, specifically to apply directly in environment samples. It provides the de-novo reconstruction of viral genomes. The classification is reference and feature-based. The viral database is freely provided exclusively for the classification phase. Assembly is exclusively reference-free.
