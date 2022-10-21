@@ -2,14 +2,16 @@
 #
 STUDY="data";
 MIN_READ_LENGTH="30";
-MIN_SIMILARITY="20";
-THREADS="8"; 
+MIN_NC="0.9";
+THREADS="8";
 FW_READS="";
 RV_READS="";
 ADAPTERS="adapters.fa";
 DATABASE="VDB.fa";
 REPORTS_DIR="reports";
 RESULTS_DIR="results";
+HUMAN_READS="0";
+HUMAN_FASTA="chm13v2.0.fa.gz";
 #
 # =============================================================================
 # FUNCTIONS -------------------------------------------------------------------
@@ -56,9 +58,12 @@ SHOW_MENU () {
   echo " -h, --help                     Show this,                ";
   echo " -i, --install                  Installation (w/ conda),  ";
   echo "                                                          ";
+  echo " -f, --filter-human             Filter human reads,       ";
+  echo "                                                          ";
   echo " -t  <INT>, --threads <INT>     Number of threads,        ";
   echo "                                                          ";
   echo " -mr <INT>, --min-read <INT>    Minimum size of reads,    ";
+  echo " -mn <INT>, --min-nc <INT>      Minimum NC to classify,   ";
   echo "                                                          ";
   echo " -r1 <STR>, --reads1 <STR>      FASTQ reads (forward),    ";
   echo " -r2 <STR>, --reads2 <STR>      FASTQ reads (reverse),    ";
@@ -98,6 +103,10 @@ while [[ $# -gt 0 ]]
       INSTALL=1;
       shift
     ;;
+    -f|--filter-human|--no-human)
+      HUMAN_READS=1;
+      shift
+    ;;
     -t|--threads)
       THREADS="$2";
       shift 2;
@@ -116,8 +125,8 @@ while [[ $# -gt 0 ]]
       DATABASE="$2";
       shift 2;
     ;;
-    -si|--similarity)
-      MIN_SIMILARITY="$2";
+    -mn|--min-nc)
+      MIN_NC="$2";
       SHOW_HELP=0;
       shift 2;
     ;;
@@ -166,10 +175,17 @@ if [[ "$INSTALL" -eq "1" ]];
   conda config --add channels defaults
   #
   conda install -c bioconda trimmomatic -y
+  conda install -c bioconda bowtie2 -y
+  conda install -c bioconda samtools=1.9 -y
   conda install -c bioconda spades=3.5.15 -y
   conda install -c cobilab falcon -y
   #
+  wget https://s3-us-west-2.amazonaws.com/human-pangenomics/T2T/CHM13/assemblies/analysis_set/chm13v2.0.fa.gz
+  gunzip chm13v2.0.fa.gz
+  bowtie2-build chm13v2.0.fa host_DB
+  #
   printf ">PrefixPE/1\nTACACTCTTTCCCTACACGACGCTCTTCCGATCT\n>PrefixPE/2\nGTGACTGGAGTTCAGACGTGTGCTCTTCCGATCT\n>PE1\nTACACTCTTTCCCTACACGACGCTCTTCCGATCT\n>PE1_rc\nAGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGTA\n>PE2\nGTGACTGGAGTTCAGACGTGTGCTCTTCCGATCT\n>PE2_rc\nAGATCGGAAGAGCACACGTCTGAACTCCAGTCAC\n" > adapters.fa
+  #
   exit;
   #
   fi
@@ -199,14 +215,41 @@ if [[ "$RUN" -eq "1" ]];
   echo "NEW ANALYSIS: $DATE " > $REPORTS_DIR/report_stdout.txt
   #
   # ===========================================================================
+  # REMOVE HUMAN READS --------------------------------------------------------
+  #
+  if [[ "$HUMAN_READS" -eq "1" ]];
+    then
+    #
+    echo "Removing host data ...";
+    CHECK_FILE "$HOST_FASTA";
+    #
+    # https://www.aespindola.com/post/dehosting/
+    # https://www.metagenomics.wiki/tools/short-read/remove-host-sequences
+    bowtie2 -p $THREADS -x host_DB -1 $FW_READS -2 $RV_READS --un-conc-gz SAMPLE_host_removed > $STUDY-data.sam 2>> $REPORTS_DIR/report_stderr.txt
+    samtools view -bS $STUDY-data.sam > $STUDY-data.bam 2>> $REPORTS_DIR/report_stderr.txt
+    samtools sort -n -o $STUDY-sorted-data.bam $STUDY-data.bam 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+    samtools fastq -1 $STUDY-reads-r1.fq -2 $STUDY-reads-r2.fq $STUDY-sorted-data.bam 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+    #
+    else
+    #
+    echo "Uncompressing reads ...";
+    zcat $FW_READS > $STUDY-reads-r1.fq;
+    zcat $RV_READS > $STUDY-reads-r2.fq;
+    #
+  fi
+  #
+  # ===========================================================================
   # TRIMMING ------------------------------------------------------------------
   #
   echo "Trimming data ...";
   CHECK_FILE "$ADAPTERS";
-  CHECK_FILE "$FW_READS";
-  CHECK_FILE "$RV_READS";
+  CHECK_FILE "$STUDY-reads-r1.fq";
+  CHECK_FILE "$STUDY-reads-r2.fq";
+  #
   rm -f $STUDY-fw-pr.fq.gz $STUDY-fw-unpr.fq.gz $STUDY-rv-pr.fq.gz $STUDY-rv-unpr.fq.gz;
-  trimmomatic PE -threads $THREADS -phred33 $FW_READS $RV_READS $STUDY-fw-pr.fq $STUDY-fw-unpr.fq $STUDY-rv-pr.fq $STUDY-rv-unpr.fq ILLUMINACLIP:$ADAPTERS:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:$MIN_READ_LENGTH 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+  #
+  trimmomatic PE -threads $THREADS -phred33 $STUDY-reads-r1.fq $STUDY-reads-r2.fq $STUDY-fw-pr.fq $STUDY-fw-unpr.fq $STUDY-rv-pr.fq $STUDY-rv-unpr.fq ILLUMINACLIP:$ADAPTERS:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:4:15 MINLEN:$MIN_READ_LENGTH 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+  #
   cat $REPORTS_DIR/report_stderr.txt | grep "Input Read Pairs:";
   cat $STUDY-fw-unpr.fq $STUDY-rv-unpr.fq > $STUDY-unpr.fq
   #
@@ -220,55 +263,58 @@ if [[ "$RUN" -eq "1" ]];
   CHECK_FILE "$STUDY-rv-unpr.fq";
   CHECK_FILE "$STUDY-unpr.fq";
   #
-  #metaviralspades.py --threads $THREADS -1 $STUDY-fw-pr.fq -2 $STUDY-rv-pr.fq -s $STUDY-unpr.fq -o $RESULTS_DIR/denovo_$STUDY 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
   metaspades.py --threads $THREADS -1 $STUDY-fw-pr.fq -2 $STUDY-rv-pr.fq -s $STUDY-unpr.fq -o $RESULTS_DIR/denovo_$STUDY 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
   #
   # ===========================================================================
-  # REFERENCE-BASED CLASSIFICATION OF CONTIGS ---------------------------------
+  # ALIGNMENT-FREE REFERENCE-BASED CLASSIFICATION OF CONTIGS ------------------
   #
   echo "Classifying contigs with reference-based approach ...";
-  #CHECK_FILE "$RESULTS_DIR/denovo_$STUDY/before_rr.fasta";
-  #FALCON -v -n $THREADS -t 5000 -F -m 6:1:1:0/0 -m 13:50:1:0/0 -m 19:500:1:5/10 -g 0.85 -c 10 -x $STUDY-metagenomics.csv $RESULTS_DIR/denovo_$STUDY/before_rr.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+  #
   CHECK_FILE "$RESULTS_DIR/denovo_$STUDY/scaffolds.fasta";
   CHECK_FILE "$DATABASE";
+  #
   FALCON -v -n $THREADS -t 5000 -F -m 6:1:1:0/0 -m 13:50:1:0/0 -m 19:500:1:5/10 -g 0.85 -c 30 -x $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
   cp $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/
   # 
   # ===========================================================================
   # IDENTIFY UNKNOWN CONTIGS --------------------------------------------------
   #
-  echo "Identifying unknown contigs ...";
+  echo "Identifying contigs ...";
   #
   # CALCULATE NC --------------------------------------------------------------
   #
-  NC_PARAM=" -t $THREADS -m 11:1:1:0:0:0.85/0:0:0 -m 13:50:1:1:0:0.9/0:0:0 ";
+  NC_PARAM=" -t $THREADS -m 3:1:1:0:0:0.85/0:0:0 -m 12:20:1:1:0:0.9/0:0:0 ";
   ./AltaiR nc $NC_PARAM $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-NC-all.csv;
   cp $STUDY-NC-all.csv $RESULTS_DIR/
   #
   # CALCULATE NRC FOR EACH READ ABOVE THRESHOLD TO THE VIRAL ------------------
   #
   rm -f $RESULTS_DIR/FINAL-RESULTS.txt
-  grep ">" $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-HEADERS.txt;
-  mapfile -t T_DATA < $1
+  grep ">" $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta | tr -d '>' > $STUDY-HEADERS.txt;
+  mapfile -t T_DATA < $STUDY-HEADERS.txt
   #
   for line in "${T_DATA[@]}" #
     do
     #
-    ./AltaiR filter --pattern "$line" < $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-TMP.fa
+    PATTERN=`echo "$line" | awk '{ print $1 }'`;
+    ./AltaiR filter --pattern "$PATTERN" < $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-TMP.fa
     #
-    NC_VALUE=`grep "$line" $STUDY-NC-all.csv | awk '{ print $2 }'`;
-    TOP_VALUE="---";
+    NC_VALUE=`grep "$PATTERN" $STUDY-NC-all.csv | awk '{ print $2 }'`;
+    TOP_VALUE="(repetitive sequence with NC below $MIN_NC)";
     #
-    if [[ "$MIN_SIMILARITY" > "$NC_VALUE" ]];
+    if (( $(bc <<<"$NC_VALUE > $MIN_NC") ));
       then
-      #echo "$NAME $NC ";
       mkdir -p $RESULTS_DIR/contigs
-      FALCON -v -n $THREADS -t 5000 -F -m 7:1:1:0/0 -m 13:50:1:0/0 -g 0.85 -c 10 -x $RESULTS_DIR/contigs/$STUDY-$line $STUDY-TMP.fa $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
-      TOP_VALUE=`head -n 1 $RESULTS_DIR/contigs/$STUDY-$line`;
+      #
+      FALCON -v -n $THREADS -t 1000 -F -m 11:1:1:0/0 -m 13:50:1:0/0 -g 0.85 -c 10 -x $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt $STUDY-TMP.fa $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+      TOP_VALUE=`head -n 1 $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt | awk '{print $2"\t"$3"\t"$4 }'`;
+      #
+      # PERFORM LOOPBACK NRC:
+      
       #
       fi
     #
-    printf "$line\t$NC_VALUE\t$TOP_VALUE\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
+    printf "$PATTERN\t$NC_VALUE\t$TOP_VALUE\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
     #
     done
   #
@@ -285,6 +331,7 @@ if [[ "$RUN" -eq "1" ]];
 #
 # Clean temporary data
 echo "Cleaning temporary data ...";
+rm -f $STUDY-reads-r1.fq $STUDY-reads-r2.fq
 rm -f $STUDY-fw-pr.fq $STUDY-fw-unpr.fq $STUDY-rv-pr.fq $STUDY-rv-unpr.fq;
 rm -f $STUDY-metagenomics.csv $STUDY-NC-all.csv $STUDY-HEADERS.txt
 #
