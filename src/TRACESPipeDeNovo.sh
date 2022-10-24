@@ -3,6 +3,7 @@
 STUDY="data";
 MIN_READ_LENGTH="30";
 MIN_NC="0.9";
+MIN_CONTIG_LENGTH="100";
 THREADS="8";
 FW_READS="";
 RV_READS="";
@@ -12,6 +13,11 @@ REPORTS_DIR="reports";
 RESULTS_DIR="results";
 HUMAN_READS="0";
 HUMAN_FASTA="chm13v2.0.fa.gz";
+#
+FALCON_PARAM_DB=" -n $THREADS -m 6:1:1:0/0 -m 13:50:1:0/0 -m 19:500:1:5/10 -g 0.85 -c 30 ";
+FALCON_PARAM_CONTIGS=" -n $THREADS -m 11:1:1:0/0 -m 13:50:1:0/0 -g 0.85 -c 10 ";
+NC_PARAM=" -t $THREADS -m 3:1:1:0:0:0.85/0:0:0 -m 12:20:1:1:0:0.9/0:0:0 ";
+GECO3_PARAM=" -v -rm 6:1:1:0:0.8/0:0:0 -rm 13:50:1:0:0.9/0:0:0 -rm 19:500:1:10:0.9/5:10:0,9 ";
 #
 # =============================================================================
 # FUNCTIONS -------------------------------------------------------------------
@@ -23,6 +29,16 @@ CHECK_FILE () {
     echo "For addition information, see the instructions at the web page."
     exit 1;
     fi
+  }
+#
+CHECK_FILE_GZIPED () {
+  if (file $1 | grep -q compressed ) ; then
+    echo "$1 is compressed";
+  else
+    echo -e "\e[31mERROR: $1 file is not compressed with Gzip!\e[0m"
+    echo "Before running, use: gzip $1";
+    exit;
+  fi
   }
 #
 PROGRAM_EXISTS () {
@@ -41,6 +57,7 @@ CHECK_PROGRAMS () {
   PROGRAM_EXISTS "trimmomatic";
   PROGRAM_EXISTS "metaviralspades.py";
   PROGRAM_EXISTS "FALCON";
+  PROGRAM_EXISTS "GeCo3";
   PROGRAM_EXISTS "./AltaiR";
   }
 #
@@ -64,6 +81,7 @@ SHOW_MENU () {
   echo "                                                          ";
   echo " -mr <INT>, --min-read <INT>    Minimum size of reads,    ";
   echo " -mn <INT>, --min-nc <INT>      Minimum NC to classify,   ";
+  echo " -mc <INT>, --min-contig <INT>  Minimum contig length,    ";
   echo "                                                          ";
   echo " -r1 <STR>, --reads1 <STR>      FASTQ reads (forward),    ";
   echo " -r2 <STR>, --reads2 <STR>      FASTQ reads (reverse),    ";
@@ -135,6 +153,11 @@ while [[ $# -gt 0 ]]
       SHOW_HELP=0;
       shift 2;
     ;;
+    -mc|--min-contig)
+      MIN_CONTIG_LENGTH="$2";
+      SHOW_HELP=0;
+      shift 2;
+    ;;
     -o|--output)
       RESULTS_DIR="$2";
       shift 2;
@@ -176,6 +199,7 @@ if [[ "$INSTALL" -eq "1" ]];
   #
   conda install -c bioconda trimmomatic -y
   conda install -c bioconda bowtie2 -y
+  conda install -c bioconda geco3 -y
   conda install -c bioconda samtools=1.9 -y
   conda install -c bioconda spades=3.5.15 -y
   conda install -c cobilab falcon -y
@@ -214,6 +238,9 @@ if [[ "$RUN" -eq "1" ]];
   echo "NEW ANALYSIS: $DATE " > $REPORTS_DIR/report_stderr.txt
   echo "NEW ANALYSIS: $DATE " > $REPORTS_DIR/report_stdout.txt
   #
+  CHECK_FILE_GZIPED "$FW_READS" > $REPORTS_DIR/report_stdout.txt
+  CHECK_FILE_GZIPED "$RV_READS" > $REPORTS_DIR/report_stdout.txt
+  #
   # ===========================================================================
   # REMOVE HUMAN READS --------------------------------------------------------
   #
@@ -227,7 +254,8 @@ if [[ "$RUN" -eq "1" ]];
     # https://www.metagenomics.wiki/tools/short-read/remove-host-sequences
     bowtie2 -p $THREADS -x host_DB -1 $FW_READS -2 $RV_READS --un-conc-gz SAMPLE_host_removed > $STUDY-data.sam 2>> $REPORTS_DIR/report_stderr.txt
     samtools view -bS $STUDY-data.sam > $STUDY-data.bam 2>> $REPORTS_DIR/report_stderr.txt
-    samtools sort -n -o $STUDY-sorted-data.bam $STUDY-data.bam 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+    samtools view -b -f 12 -F 256 $STUDY-data.bam > $STUDY-data-no-human.bam 2>> $REPORTS_DIR/report_stderr.txt
+    samtools sort -n -o $STUDY-sorted-data.bam $STUDY-data-no-human.bam 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
     samtools fastq -1 $STUDY-reads-r1.fq -2 $STUDY-reads-r2.fq $STUDY-sorted-data.bam 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
     #
     else
@@ -237,6 +265,13 @@ if [[ "$RUN" -eq "1" ]];
     zcat $RV_READS > $STUDY-reads-r2.fq;
     #
   fi
+  #
+  # ===========================================================================
+  # INFORM SIZE OF UNCOMPRESSED READS -----------------------------------------
+  #
+  FIL_READS_SIZE_1=`ls -lah $STUDY-reads-r1.fq | awk '{ print $5; }'`;
+  FIL_READS_SIZE_2=`ls -lah $STUDY-reads-r2.fq | awk '{ print $5; }'`;
+  echo "READS1: $FIL_READS_SIZE_1 - READS2: $FIL_READS_SIZE_2";
   #
   # ===========================================================================
   # TRIMMING ------------------------------------------------------------------
@@ -273,23 +308,23 @@ if [[ "$RUN" -eq "1" ]];
   CHECK_FILE "$RESULTS_DIR/denovo_$STUDY/scaffolds.fasta";
   CHECK_FILE "$DATABASE";
   #
-  FALCON -v -n $THREADS -t 5000 -F -m 6:1:1:0/0 -m 13:50:1:0/0 -m 19:500:1:5/10 -g 0.85 -c 30 -x $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+  FALCON -v -t 5000 -F $FALCON_PARAM_DB -x $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
   cp $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/
   # 
   # ===========================================================================
   # IDENTIFY UNKNOWN CONTIGS --------------------------------------------------
   #
-  echo "Identifying contigs ...";
+  echo "Identifying contigs with minimum size of $MIN_CONTIG_LENGTH ...";
   #
   # CALCULATE NC --------------------------------------------------------------
   #
-  NC_PARAM=" -t $THREADS -m 3:1:1:0:0:0.85/0:0:0 -m 12:20:1:1:0:0.9/0:0:0 ";
   ./AltaiR nc $NC_PARAM $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-NC-all.csv;
   cp $STUDY-NC-all.csv $RESULTS_DIR/
   #
   # CALCULATE NRC FOR EACH READ ABOVE THRESHOLD TO THE VIRAL ------------------
   #
-  rm -f $RESULTS_DIR/FINAL-RESULTS.txt
+  printf "# CONTIG_NAME\tCONTIG_NC\tBEST_REF_LENGTH\tBEST_REF_SIMILARITY\tBEST_REF_NAME\tCONTIG_BPS_USING_BEST_REF\n" > $RESULTS_DIR/FINAL-RESULTS.txt;
+  #
   grep ">" $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta | tr -d '>' > $STUDY-HEADERS.txt;
   mapfile -t T_DATA < $STUDY-HEADERS.txt
   #
@@ -299,22 +334,36 @@ if [[ "$RUN" -eq "1" ]];
     PATTERN=`echo "$line" | awk '{ print $1 }'`;
     ./AltaiR filter --pattern "$PATTERN" < $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-TMP.fa
     #
-    NC_VALUE=`grep "$PATTERN" $STUDY-NC-all.csv | awk '{ print $2 }'`;
-    TOP_VALUE="(repetitive sequence with NC below $MIN_NC)";
+    NC_VALUE=`grep "$PATTERN" $RESULTS_DIR/$STUDY-NC-all.csv | awk '{ print $2 }'`;
+    CONTIG_SIZE=`grep -v ">" $STUDY-TMP.fa | tr -d -c "ACGT" | wc -c`;
+    # echo "CONTIG_SIZE=$CONTIG_SIZE, NC_VALUE=$NC_VALUE, MIN_NC=$MIN_NC";
     #
-    if (( $(bc <<<"$NC_VALUE > $MIN_NC") ));
+    TOP_VALUE="-";
+    if (($(bc <<<"$CONTIG_SIZE < $MIN_CONTIG_LENGTH")));
+      then  
+      #  
+      TOP_VALUE="contig_size_smaller_than_min";
+      printf "$PATTERN\t$NC_VALUE\t$TOP_VALUE\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
+      #
+    elif (($(bc <<<"$NC_VALUE > $MIN_NC")));
       then
       mkdir -p $RESULTS_DIR/contigs
       #
-      FALCON -v -n $THREADS -t 1000 -F -m 11:1:1:0/0 -m 13:50:1:0/0 -g 0.85 -c 10 -x $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt $STUDY-TMP.fa $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
+      FALCON -v -t 1000 -F $FALCON_PARAM_CONTIGS -x $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt $STUDY-TMP.fa $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
       TOP_VALUE=`head -n 1 $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt | awk '{print $2"\t"$3"\t"$4 }'`;
       #
       # PERFORM LOOPBACK NRC:
-      
+      BEST_REF_NAME=`head -n 1 $RESULTS_DIR/contigs/$STUDY-$PATTERN.txt  | tr -d ">" | awk '{print $4 }' | tr '_' '\t' | awk '{ print $1; }'`;
+      ./AltaiR filter --pattern "$BEST_REF_NAME" < $DATABASE > $STUDY-BEST-REF.fa
+      REV_BPS=`GeCo3 $GECO3_PARAM -r $STUDY-BEST-REF.fa $STUDY-TMP.fa |& grep "Total bytes" | awk '{ print $8 }'`; 
+      cp $STUDY-BEST-REF.fa xREF.fa
+      cp $STUDY-TMP.fa xTAR.fa
+      printf "$PATTERN\t$NC_VALUE\t$TOP_VALUE\t$REV_BPS\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
       #
+    else
+      TOP_VALUE="contig_sequence_with_nc_smaller_than_min";
+      printf "$PATTERN\t$NC_VALUE\t$TOP_VALUE\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
       fi
-    #
-    printf "$PATTERN\t$NC_VALUE\t$TOP_VALUE\n" >> $RESULTS_DIR/FINAL-RESULTS.txt;
     #
     done
   #
@@ -331,9 +380,10 @@ if [[ "$RUN" -eq "1" ]];
 #
 # Clean temporary data
 echo "Cleaning temporary data ...";
-rm -f $STUDY-reads-r1.fq $STUDY-reads-r2.fq
+rm -f $STUDY-reads-r1.fq $STUDY-reads-r2.fq;
 rm -f $STUDY-fw-pr.fq $STUDY-fw-unpr.fq $STUDY-rv-pr.fq $STUDY-rv-unpr.fq;
-rm -f $STUDY-metagenomics.csv $STUDY-NC-all.csv $STUDY-HEADERS.txt
+rm -f $STUDY-metagenomics.csv $STUDY-NC-all.csv $STUDY-HEADERS.txt;
+rm -f $STUDY-data.sam $STUDY-data.bam $STUDY-data-no-human.bam $STUDY-sorted-data.bam;
 #
 ###############################################################################
 #
