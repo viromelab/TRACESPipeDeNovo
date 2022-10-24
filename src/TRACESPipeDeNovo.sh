@@ -16,7 +16,7 @@ HUMAN_FASTA="chm13v2.0.fa.gz";
 #
 FALCON_PARAM_DB=" -n $THREADS -m 6:1:1:0/0 -m 13:50:1:0/0 -m 19:500:1:5/10 -g 0.85 -c 30 ";
 FALCON_PARAM_CONTIGS=" -n $THREADS -m 11:1:1:0/0 -m 13:50:1:0/0 -g 0.85 -c 10 ";
-NC_PARAM=" -t $THREADS -m 3:1:1:0:0:0.85/0:0:0 -m 12:20:1:1:0:0.9/0:0:0 ";
+NC_PARAM=" -t $THREADS -v --dna -m 3:1:0:0:0:0.85/0:0:0 -m 12:20:0:1:0:0.9/0:0:0 ";
 GECO3_PARAM=" -v -rm 6:1:1:0:0.8/0:0:0 -rm 13:50:1:0:0.9/0:0:0 -rm 19:500:1:10:0.9/5:10:0,9 ";
 #
 # =============================================================================
@@ -308,8 +308,7 @@ if [[ "$RUN" -eq "1" ]];
   CHECK_FILE "$RESULTS_DIR/denovo_$STUDY/scaffolds.fasta";
   CHECK_FILE "$DATABASE";
   #
-  FALCON -v -t 5000 -F $FALCON_PARAM_DB -x $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
-  cp $STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/
+  FALCON -v -t 5000 -F $FALCON_PARAM_DB -x $RESULTS_DIR/$STUDY-metagenomics-all-scaffolds.csv $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta $DATABASE 1>> $REPORTS_DIR/report_stdout.txt 2>> $REPORTS_DIR/report_stderr.txt
   # 
   # ===========================================================================
   # IDENTIFY UNKNOWN CONTIGS --------------------------------------------------
@@ -318,8 +317,7 @@ if [[ "$RUN" -eq "1" ]];
   #
   # CALCULATE NC --------------------------------------------------------------
   #
-  ./AltaiR nc $NC_PARAM $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $STUDY-NC-all.csv;
-  cp $STUDY-NC-all.csv $RESULTS_DIR/
+  ./AltaiR nc $NC_PARAM $RESULTS_DIR/denovo_$STUDY/scaffolds.fasta > $RESULTS_DIR/$STUDY-NC-all.csv;
   #
   # CALCULATE NRC FOR EACH READ ABOVE THRESHOLD TO THE VIRAL ------------------
   #
