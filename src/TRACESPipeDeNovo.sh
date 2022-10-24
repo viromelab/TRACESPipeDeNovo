@@ -238,8 +238,8 @@ if [[ "$RUN" -eq "1" ]];
   echo "NEW ANALYSIS: $DATE " > $REPORTS_DIR/report_stderr.txt
   echo "NEW ANALYSIS: $DATE " > $REPORTS_DIR/report_stdout.txt
   #
-  CHECK_FILE_GZIPED "$FW_READS" > $REPORTS_DIR/report_stdout.txt
-  CHECK_FILE_GZIPED "$RV_READS" > $REPORTS_DIR/report_stdout.txt
+  CHECK_FILE_GZIPED "$FW_READS" >> $REPORTS_DIR/report_stdout.txt
+  CHECK_FILE_GZIPED "$RV_READS" >> $REPORTS_DIR/report_stdout.txt
   #
   # ===========================================================================
   # REMOVE HUMAN READS --------------------------------------------------------
